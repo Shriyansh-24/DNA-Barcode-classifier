@@ -13,10 +13,26 @@ import re
 import json
 from datetime import datetime
 import base64
+from pathlib import Path
 
-from reference_db import REFERENCE_DATABASE, SPECIES_METADATA
-from dna_engine import DNAAnalysisEngine
-from report_generator import generate_pdf_report
+# ─── Graceful DB import (shows setup screen if CSV missing) ──────────────────
+_CSV_PATH = Path(__file__).parent / "reference_db.csv"
+_DB_READY = _CSV_PATH.exists()
+
+if _DB_READY:
+    try:
+        from reference_db import REFERENCE_DATABASE, SPECIES_METADATA
+        from dna_engine import DNAAnalysisEngine
+        from report_generator import generate_pdf_report
+    except Exception as _db_err:
+        _DB_READY = False
+        _DB_ERROR = str(_db_err)
+    else:
+        _DB_ERROR = None
+else:
+    _DB_ERROR = "reference_db.csv not found"
+    REFERENCE_DATABASE = {}
+    SPECIES_METADATA = {}
 
 # ─── Page Config ─────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -228,7 +244,7 @@ div[data-testid="stExpander"] {
 """, unsafe_allow_html=True)
 
 
-# ─── Initialize Engine ────────────────────────────────────────────────────────
+# ─── Initialize Engine (only if DB is ready) ─────────────────────────────────
 @st.cache_resource
 def load_engine():
     engine = DNAAnalysisEngine(REFERENCE_DATABASE)
@@ -236,7 +252,7 @@ def load_engine():
     return engine
 
 
-engine = load_engine()
+engine = load_engine() if _DB_READY else None
 
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -259,18 +275,41 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("#### 📊 Reference Database")
+
+    # Count total accessions from CSV
+    _csv = Path(__file__).parent / "reference_db.csv"
+    _total_seqs = 0
+    if _csv.exists():
+        try:
+            _total_seqs = len(pd.read_csv(_csv))
+        except Exception:
+            pass
+
     st.markdown(f"""
     <div class='dna-card' style='padding:12px'>
         <div style='font-size:0.78rem; color:#8899bb; letter-spacing:1px; text-transform:uppercase'>Status</div>
         <div style='color:#00ff88; font-family:monospace; font-size:0.9rem; margin-top:4px'>● ONLINE</div>
         <div style='margin-top:10px; font-size:0.78rem; color:#8899bb'>Species Loaded</div>
         <div style='font-family:monospace; color:#e8edf5'>{len(REFERENCE_DATABASE)} taxa</div>
-        <div style='margin-top:8px; font-size:0.78rem; color:#8899bb'>Source</div>
-        <div style='font-size:0.8rem; color:#00b4ff'>BOLD + MIDORI2</div>
-        <div style='margin-top:8px; font-size:0.78rem; color:#8899bb'>Gene Target</div>
-        <div style='font-size:0.8rem'>COI (5' region)</div>
+        <div style='margin-top:6px; font-size:0.78rem; color:#8899bb'>BOLD Accessions</div>
+        <div style='font-family:monospace; color:#00b4ff'>{_total_seqs} sequences</div>
+        <div style='margin-top:6px; font-size:0.78rem; color:#8899bb'>Source</div>
+        <div style='font-size:0.8rem; color:#00b4ff'>BOLD Systems API</div>
+        <div style='margin-top:6px; font-size:0.78rem; color:#8899bb'>Gene Target</div>
+        <div style='font-size:0.8rem'>COI-5P (658 bp)</div>
     </div>
     """, unsafe_allow_html=True)
+
+    if st.button("🔄 Refresh from BOLD API", use_container_width=True):
+        with st.spinner("Fetching sequences from BOLD Systems..."):
+            try:
+                from bold_fetcher import fetch_all
+                fetch_all(overwrite=True, verbose=False)
+                st.cache_resource.clear()
+                st.success("Database refreshed! Restarting...")
+                st.rerun()
+            except Exception as ex:
+                st.error(f"Fetch failed: {ex}")
 
     st.markdown("---")
     st.markdown("#### 🏛️ Authority")
@@ -282,6 +321,134 @@ with st.sidebar:
     🗄️ MIDORI2 (GenBank curated)
     </div>
     """, unsafe_allow_html=True)
+
+
+# ─── Setup Screen (shown when CSV missing) ───────────────────────────────────
+if not _DB_READY:
+    st.markdown("""
+    <div style='text-align:center; padding:20px 0 10px'>
+        <div style='font-family:monospace; font-size:1.8rem; color:#00b4ff; letter-spacing:3px'>🧬 WILDGUARD</div>
+        <div style='color:#8899bb; font-size:0.8rem; letter-spacing:3px; margin-top:4px'>FIRST-TIME SETUP REQUIRED</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    col_setup, col_manual = st.columns(2)
+
+    with col_setup:
+        st.markdown("""
+        <div class='dna-card'>
+            <div style='font-size:1.1rem; font-weight:600; color:#00b4ff; margin-bottom:12px'>
+                🌐 Option A — Fetch from BOLD API
+            </div>
+            <div style='font-size:0.85rem; color:#8899bb; line-height:1.8'>
+                Automatically downloads real COI-5P sequences for all 20 target species
+                directly from the BOLD Systems public database.<br><br>
+                <b style='color:#e8edf5'>Requirements:</b> Internet connection<br>
+                <b style='color:#e8edf5'>Time:</b> ~2–5 minutes<br>
+                <b style='color:#e8edf5'>Sequences per species:</b> up to 5
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        n_seqs = st.slider("Sequences per species", 1, 10, 5,
+                           help="More sequences = better accuracy but slower fetch")
+        overwrite = st.checkbox("Re-fetch even if species already in CSV", value=False)
+
+        if st.button("🔬 FETCH FROM BOLD NOW", use_container_width=True):
+            from bold_fetcher import fetch_all, TARGET_SPECIES
+            progress = st.progress(0, text="Starting BOLD fetch...")
+            log_box = st.empty()
+            log_lines = []
+
+            class StreamlitLogger:
+                def write(self, msg):
+                    if msg.strip():
+                        log_lines.append(msg.strip())
+                        log_box.markdown(
+                            "<div class='seq-display' style='height:200px;overflow-y:auto'>"
+                            + "<br>".join(log_lines[-12:]) + "</div>",
+                            unsafe_allow_html=True
+                        )
+                def flush(self): pass
+
+            import sys
+            old_stdout = sys.stdout
+            sys.stdout = StreamlitLogger()
+
+            try:
+                df = fetch_all(
+                    max_seqs_per_species=n_seqs,
+                    overwrite=overwrite,
+                    verbose=True
+                )
+                sys.stdout = old_stdout
+                if df is not None and len(df) > 0:
+                    progress.progress(1.0, text="✓ Done!")
+                    st.success(f"✓ Fetched {len(df)} sequences for "
+                               f"{df['species_id'].nunique()} species. Reloading...")
+                    st.cache_resource.clear()
+                    st.rerun()
+                else:
+                    st.error("Fetch returned no sequences. Check your internet connection.")
+            except Exception as ex:
+                sys.stdout = old_stdout
+                st.error(f"Fetch failed: {ex}")
+
+    with col_manual:
+        st.markdown("""
+        <div class='dna-card'>
+            <div style='font-size:1.1rem; font-weight:600; color:#ffd700; margin-bottom:12px'>
+                📂 Option B — Upload CSV Manually
+            </div>
+            <div style='font-size:0.85rem; color:#8899bb; line-height:1.8'>
+                Upload a pre-built <code>reference_db.csv</code> file.<br>
+                Use this if BOLD is unreachable or you have a curated offline database.<br><br>
+                <b style='color:#e8edf5'>CSV must have columns:</b><br>
+                <code style='font-size:0.75rem'>species_id, scientific_name, common_name,
+                kingdom, phylum, class_, order, family, genus,
+                iucn, cites_appendix, native_range, emoji,
+                trafficking_note, gene, accession, sequence</code>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        uploaded_csv = st.file_uploader("Upload reference_db.csv", type=["csv"])
+        if uploaded_csv:
+            try:
+                import pandas as _pd
+                df_check = _pd.read_csv(uploaded_csv, dtype=str).fillna("")
+                required_cols = {"species_id", "scientific_name", "sequence"}
+                missing = required_cols - set(df_check.columns)
+                if missing:
+                    st.error(f"CSV missing required columns: {missing}")
+                else:
+                    n_sp = df_check["species_id"].nunique()
+                    n_rows = len(df_check)
+                    st.success(f"✓ Valid CSV: {n_rows} rows, {n_sp} species")
+                    if st.button("💾 SAVE AND LOAD THIS CSV", use_container_width=True):
+                        uploaded_csv.seek(0)
+                        _CSV_PATH.write_bytes(uploaded_csv.read())
+                        st.cache_resource.clear()
+                        st.success("Saved! Reloading app...")
+                        st.rerun()
+            except Exception as ex:
+                st.error(f"Could not read CSV: {ex}")
+
+        st.markdown("---")
+        st.markdown("""
+        <div style='font-size:0.8rem; color:#8899bb; line-height:1.8'>
+            <b style='color:#e8edf5'>Or run from terminal:</b><br>
+            <code>python bold_fetcher.py</code><br><br>
+            <b style='color:#e8edf5'>Test a single species:</b><br>
+            <code>python bold_fetcher.py --species "Panthera leo"</code><br><br>
+            <b style='color:#e8edf5'>Re-fetch everything:</b><br>
+            <code>python bold_fetcher.py --overwrite</code>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.stop()
 
 
 # ─── Main Dashboard ───────────────────────────────────────────────────────────
@@ -350,6 +517,10 @@ with col_info:
 
 # ─── Analysis Pipeline ────────────────────────────────────────────────────────
 if analyze_btn or st.session_state.get("last_result"):
+
+    if engine is None:
+        st.error("⚠️ Analysis engine not loaded. Please set up the database first.")
+        st.stop()
 
     if analyze_btn and raw_input.strip():
         with st.spinner("🧬 Sanitizing sequence..."):

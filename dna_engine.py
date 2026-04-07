@@ -80,42 +80,41 @@ class DNAAnalysisEngine:
 
     # ─── Fit reference model ───────────────────────────────────────────────────
     def fit(self, kmer_size: int = 4):
-    #Pre-compute reference k-mer vectors and train RF classifier. Supports both single 'sequence' (str) and multiple 'sequences' (list) per species. When multiple sequences exist, stores their centroid vector for more robust matching
+        """Pre-compute reference k-mer vectors and train RF classifier.
+        Supports both old single 'sequence' key and new multi-sequence 'sequences' list.
+        When multiple sequences exist, stores their centroid vector for cosine similarity.
+        """
+        self._kmer_size = kmer_size
         X, y = [], []
 
         for sid, data in self.reference_db.items():
-
-            # ── Support both old single-sequence and new multi-sequence format ──
+            # Support both formats: 'sequences' (list) and 'sequence' (str)
             seqs = data.get("sequences", None)
             if seqs is None:
-                # Backwards compatible: wrap the single sequence in a list
-                seqs = [data.get("sequence", "")]
+                single = data.get("sequence", "")
+                seqs = [single] if single else []
 
-            # Filter out any sequences that are too short to be useful
+            # Filter too-short sequences
             seqs = [s for s in seqs if len(s) >= 100]
-
             if not seqs:
-                continue  # Skip species with no valid sequences
+                continue
 
-            # ── Build centroid vector (average across all sequences) ──
+            # Build centroid vector — average k-mer profile across all accessions
             all_vecs = [self.kmer_vector(s, k=kmer_size) for s in seqs]
             centroid = np.mean(all_vecs, axis=0)
-            self.ref_vectors[sid] = centroid  # Used for cosine similarity later
+            self.ref_vectors[sid] = centroid  # used for cosine similarity
 
-            # ── Augment training data with sub-sequence windows ──
-            # This teaches the RF to recognize partial/fragmented sequences too
+            # Augment training data with sub-sequence windows from every accession
             for seq in seqs:
                 for start in range(0, max(1, len(seq) - 200), 50):
                     sub = seq[start:start + 300]
                     if len(sub) >= 100:
-                        vec = self.kmer_vector(sub, k=kmer_size)
-                        X.append(vec)
+                        X.append(self.kmer_vector(sub, k=kmer_size))
                         y.append(sid)
-                # Also train on the full sequence
+                # Also train on full sequence
                 X.append(self.kmer_vector(seq, k=kmer_size))
                 y.append(sid)
 
-        # ── Train the Random Forest classifier ──
         self.clf = RandomForestClassifier(
             n_estimators=200, max_depth=None, random_state=42,
             class_weight="balanced", n_jobs=-1
@@ -210,14 +209,17 @@ class DNAAnalysisEngine:
             confidence = "LOW"
 
         # 7. E-value
-        ref_seq_len = len(self.reference_db[top["species_id"]]["sequence"])
-        evalue = self.compute_evalue(sim, len(seq), db_size=20)
+        # Support both 'sequences' list (new) and 'sequence' str (legacy)
+        _top_entry = self.reference_db[top["species_id"]]
+        _ref_seqs  = _top_entry.get("sequences") or [_top_entry.get("sequence", "")]
+        ref_seq    = max(_ref_seqs, key=len)          # longest accession as representative
+        ref_seq_len = len(ref_seq)
+        evalue = self.compute_evalue(sim, len(seq), db_size=len(self.reference_db))
 
         # 8. Alignment stats (approximate)
-        ref_seq = self.reference_db[top["species_id"]]["sequence"]
-        aligned = min(len(seq), len(ref_seq))
-        identities = int(aligned * sim / 100)
-        gaps = max(0, abs(len(seq) - len(ref_seq)))
+        aligned     = min(len(seq), ref_seq_len)
+        identities  = int(aligned * sim / 100)
+        gaps        = max(0, abs(len(seq) - ref_seq_len))
 
         # 9. Top k-mers for visualisation
         kmer_top20 = self.top_kmers(seq, k=kmer_size, n=20)
