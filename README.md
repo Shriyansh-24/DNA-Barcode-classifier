@@ -1,117 +1,167 @@
-# 🧬 WildGuard — DNA Forensics Platform
-### CITES Enforcement Tool · Hamad International Airport (
+# WildGuard DNA Classifier
 
-*THIS IS A STUDENT MADE PROJECT NOT RELATED TO ANY GOVERNMENT OR INSTITUITION. THE TITLE IS JUST AN EXAMPLE OF AN USE CASE OF THE APP*
+WildGuard is a Streamlit-based wildlife DNA forensics app for rapid species identification from COI barcode sequences. It combines sequence sanitization, k-mer feature extraction, similarity scoring, and a Random Forest classifier to support CITES-focused enforcement workflows.
 
-Real-time species identification from COI-5P DNA sequences.
-Built for customs officers and wildlife forensics specialists.
+This is a student project and is not affiliated with any government institution. The title and enforcement framing are example use cases for demonstration.
 
----
+## What This Project Does
 
-## Quick Start
+- Accepts raw DNA or FASTA sequence input.
+- Sanitizes and validates sequence data (ACGT-only cleaning).
+- Compares query DNA against a local reference database built from BOLD Systems.
+- Produces confidence-based identification outcomes: HIGH, AMBIGUOUS, or LOW.
+- Displays legal context (CITES / IUCN metadata) for identified species.
+- Generates downloadable forensic PDF reports.
 
-### 1. Install dependencies
+## Main Components
+
+- `app.py`: Streamlit UI and end-to-end analysis workflow.
+- `dna_engine.py`: Core analysis engine (sanitization, k-mers, RF model, scoring).
+- `reference_db.py`: Loads and structures `reference_db.csv` into runtime dictionaries.
+- `bold_fetcher.py`: Fetches COI-5P sequences from BOLD APIs and writes/updates `reference_db.csv`.
+- `report_generator.py`: Builds forensic PDF output (ReportLab-based).
+- `reference_db.csv`: Local sequence and species metadata store used at runtime.
+
+## Requirements
+
+- Python 3.10+ recommended
+- Internet connection for live BOLD fetch operations
+
+Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Fetch real COI sequences from BOLD Systems
-```bash
-python bold_fetcher.py
-```
-This queries the BOLD Systems public API and downloads up to 5 real
-COI-5P sequences per species, writing them to `reference_db.csv`.
+## Quick Start
 
-Options:
-```bash
-python bold_fetcher.py --max-seqs 8               # fetch 8 sequences per species
-python bold_fetcher.py --overwrite                 # re-fetch everything fresh
-python bold_fetcher.py --species "Falco cherrug"   # test a single species
-```
-
-### 3. Launch the app
+1. Ensure dependencies are installed.
+2. Verify `reference_db.csv` exists (already present in this repository).
+3. Launch the app:
 ```bash
 streamlit run app.py
 ```
 
----
+4. Open the local Streamlit URL shown in terminal (usually `http://localhost:8501`).
 
-## Target Species (20 Priority Forensic Taxa)
+## Refreshing / Rebuilding the Reference Database
 
-| Species | Common Name | CITES | IUCN |
-|---|---|---|---|
-| Acinonyx jubatus | Cheetah | I | VU |
-| Panthera leo | African Lion | II | VU |
-| Panthera pardus | Leopard | I | VU |
-| Pan troglodytes | Common Chimpanzee | I | EN |
-| Smutsia temminckii | Temminck's Pangolin | I | VU |
-| Caracal caracal | Caracal | II | LC |
-| Felis margarita | Sand Cat | II | LC |
-| Papio hamadryas | Hamadryas Baboon | II | LC |
-| Falco cherrug | Saker Falcon | II | EN |
-| Falco peregrinus | Peregrine Falcon | I | LC |
-| Psittacus erithacus | African Grey Parrot | I | EN |
-| Pycnonotus leucotis | White-eared Bulbul | II | LC |
-| Chlamydotis undulata | Houbara Bustard | I | VU |
-| Carduelis carduelis | European Goldfinch | II | LC |
-| Uromastyx aegyptia | Egyptian Spiny-tailed Lizard | II | VU |
-| Testudo graeca | Spur-thighed Tortoise | II | VU |
-| Trachemys scripta | Red-eared Slider | II | LC |
-| Crocodylus niloticus | Nile Crocodile | I | LC |
-| Anguilla anguilla | European Eel | II | CR |
-| Glaucostegus cemiculus | Smalltooth Sawfish | I | CR |
+You can rebuild from terminal:
 
-*More species planned to be added weekly, trying to scale the project properly to its not too slow*
-
----
-
-## Project Structure
-
-```
-wildlife_dna_app/
-├── app.py               Streamlit UI (Officer + Specialist views)
-├── bold_fetcher.py      BOLD API client (Portal API + v3 fallback)
-├── reference_db.py      CSV loader, exposes REFERENCE_DATABASE + SPECIES_METADATA
-├── dna_engine.py        Sanitizer, k-mer vectorizer, Random Forest classifier
-├── report_generator.py  PDF forensic report generator (ReportLab)
-├── reference_db.csv     Built by bold_fetcher.py — real BOLD sequences
-└── requirements.txt
+```bash
+python bold_fetcher.py
 ```
 
----
+Useful options:
 
-## How Analysis Works
-
-```
-Input (paste / .fasta upload)
-         |
-    [SANITIZER]        strips FASTA headers, spaces, non-ACGT chars
-         |
-  [K-MER VECTORIZER]   k=4 sliding window → 256-dim frequency vector
-         |
- [COSINE SIMILARITY]   compare against all 20 reference centroids
-         |
-  [RANDOM FOREST]      200-tree vote across all species classes
-         |
- [CONFIDENCE LOGIC]    HIGH >=98% | AMBIGUOUS 95-97% | LOW <95%
-         |
-    [OUTPUT]           Traffic light, CITES action, PDF report
+```bash
+python bold_fetcher.py --species "Panthera leo"
+python bold_fetcher.py --max-seqs 8
+python bold_fetcher.py --overwrite
 ```
 
----
+The app also provides a sidebar button to refresh from BOLD API directly.
 
-## Adding More Species (To be added later)
+## Adding More Species to the Database
 
-1. Add entry to `SPECIES_META` dict in `bold_fetcher.py`
-2. Add species name to `TARGET_SPECIES` list in `bold_fetcher.py`
-3. Run `python bold_fetcher.py` — skips already-fetched species automatically
+You have two supported ways to add species:
 
----
+### Option A: Add Species via BOLD Fetcher (Recommended)
 
-## Data Sources
+1. Open `bold_fetcher.py`.
+2. Add the scientific name to `TARGET_SPECIES`, for example:
 
-- **Sequences**: BOLD Systems (boldsystems.org) — vouchered COI-5P barcodes
-- **CITES status**: manually curated in `bold_fetcher.py`
-- **IUCN status**: manually curated, verify latest at iucnredlist.org
+```python
+TARGET_SPECIES = [
+	# existing species...
+	"Loxodonta africana",
+]
+```
 
----
+3. Add metadata for the same species in `SPECIES_META` using the exact same scientific name key:
+
+```python
+SPECIES_META = {
+	# existing species...
+	"Loxodonta africana": {
+		"common_name": "African Elephant",
+		"iucn": "EN",
+		"cites_appendix": "I",
+		"emoji": "🐘",
+		"native_range": "Sub-Saharan Africa",
+		"trafficking_note": "Ivory trade pressure.",
+	},
+}
+```
+
+4. Rebuild the CSV:
+
+```bash
+python bold_fetcher.py --overwrite
+```
+
+5. Restart or rerun the Streamlit app so it reloads `reference_db.csv`.
+
+Important:
+- The `TARGET_SPECIES` name and `SPECIES_META` key must match exactly.
+- The fetcher pulls COI-5P sequences and keeps valid barcode-like entries.
+- If a species returns no records, test it alone with:
+
+```bash
+python bold_fetcher.py --species "Loxodonta africana"
+```
+
+### Option B: Add Species Manually to CSV
+
+If BOLD fetch is unavailable, append rows directly to `reference_db.csv`.
+
+Required columns:
+
+`species_id, scientific_name, common_name, kingdom, phylum, class_, order, family, genus, iucn, cites_appendix, native_range, emoji, trafficking_note, gene, accession, sequence`
+
+Guidelines:
+- Use one row per accession/sequence.
+- Keep DNA sequence as A/C/G/T characters.
+- Use sequences at least 100 bp long (shorter rows are filtered out at load time).
+
+After saving the CSV, restart/rerun the app.
+
+## Input and Output
+
+### Inputs
+
+- Raw nucleotide sequence (COI target)
+- FASTA text
+- Uploaded FASTA files (`.fasta`, `.fa`, `.txt`)
+
+### Outputs
+
+- Species match candidates with similarity percentages
+- Confidence classification (HIGH / AMBIGUOUS / LOW)
+- Alignment-like metrics (length, identities, gaps, GC content, E-value estimate)
+- Technical visualizations (k-mer distribution and candidate chart)
+- PDF forensic report download
+
+## How Identification Works (High Level)
+
+1. Sanitize query sequence (remove headers/noise, keep A/C/G/T).
+2. Convert sequence to normalized k-mer vectors.
+3. Compute cosine similarity against reference species centroid vectors.
+4. Use Random Forest probabilities as additional support signal.
+5. Apply thresholds and tie logic to assign confidence level.
+
+## Notes
+
+- The model requires a minimum cleaned sequence length of 100 bp.
+- Best results are typically near full COI barcode lengths.
+- Species metadata (CITES/IUCN/common names/range) is carried in `reference_db.csv` rows.
+
+## Troubleshooting
+
+- `reference_db.csv not found`:
+	- Run `python bold_fetcher.py` or place a valid CSV in the project root.
+
+- `No sequences found` during fetch:
+	- Retry later (API/network issues) or reduce request scope with `--species`.
+
+- PDF generation fallback message:
+	- Ensure `reportlab` is installed from `requirements.txt`.

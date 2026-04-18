@@ -276,12 +276,16 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("#### 📊 Reference Database")
 
-    # Count total accessions from CSV
+    # Count species + total accessions from CSV
     _csv = Path(__file__).parent / "reference_db.csv"
+    _species_loaded = len(REFERENCE_DATABASE)
     _total_seqs = 0
     if _csv.exists():
         try:
-            _total_seqs = len(pd.read_csv(_csv))
+            _csv_df = pd.read_csv(_csv)
+            _total_seqs = len(_csv_df)
+            if "species_id" in _csv_df.columns:
+                _species_loaded = _csv_df["species_id"].nunique()
         except Exception:
             pass
 
@@ -290,7 +294,7 @@ with st.sidebar:
         <div style='font-size:0.78rem; color:#8899bb; letter-spacing:1px; text-transform:uppercase'>Status</div>
         <div style='color:#00ff88; font-family:monospace; font-size:0.9rem; margin-top:4px'>● ONLINE</div>
         <div style='margin-top:10px; font-size:0.78rem; color:#8899bb'>Species Loaded</div>
-        <div style='font-family:monospace; color:#e8edf5'>{len(REFERENCE_DATABASE)} taxa</div>
+        <div style='font-family:monospace; color:#e8edf5'>{_species_loaded} taxa</div>
         <div style='margin-top:6px; font-size:0.78rem; color:#8899bb'>BOLD Accessions</div>
         <div style='font-family:monospace; color:#00b4ff'>{_total_seqs} sequences</div>
         <div style='margin-top:6px; font-size:0.78rem; color:#8899bb'>Source</div>
@@ -343,7 +347,7 @@ if not _DB_READY:
                 🌐 Option A — Fetch from BOLD API
             </div>
             <div style='font-size:0.85rem; color:#8899bb; line-height:1.8'>
-                Automatically downloads real COI-5P sequences for all 20 target species
+                Automatically downloads real COI-5P sequences for all configured target species
                 directly from the BOLD Systems public database.<br><br>
                 <b style='color:#e8edf5'>Requirements:</b> Internet connection<br>
                 <b style='color:#e8edf5'>Time:</b> ~2–5 minutes<br>
@@ -838,7 +842,7 @@ if analyze_btn or st.session_state.get("last_result"):
     # ── Database Browser ──────────────────────────────────────────────────────
     st.markdown("<hr class='hline'>", unsafe_allow_html=True)
     with st.expander("🗂️ REFERENCE DATABASE BROWSER", expanded=False):
-        st.markdown("### 20 High-Priority Forensic Species")
+        st.markdown(f"### {len(SPECIES_METADATA)} High-Priority Forensic Species")
         rows = []
         for sid, m in SPECIES_METADATA.items():
             rows.append({

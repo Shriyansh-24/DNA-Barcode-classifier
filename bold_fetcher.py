@@ -5,10 +5,10 @@ Fetches real COI-5P sequences from BOLD Systems for a target species list,
 then writes / updates reference_db.csv.
 
 Two BOLD APIs are attempted in order:
-  1. BOLD Portal API (new, ~2024) — portal.boldsystems.org
-     Three-step: preprocessor → query_id → download TSV/JSON
-  2. BOLD v3 Public API (legacy, very reliable) — v3.boldsystems.org
-     One-step: returns FASTA directly
+  1. BOLD v3 Public API (legacy, very reliable) — v3.boldsystems.org
+      One-step: returns FASTA directly
+  2. BOLD Portal API (new, ~2024) — portal.boldsystems.org
+      Three-step: preprocessor → query_id → download TSV/JSON
 
 Run this script once before starting the Streamlit app, or use the
 "Refresh Database" button in the app sidebar which calls fetch_all().
@@ -43,8 +43,6 @@ TARGET_SPECIES = [
     "Falco cherrug",           # Saker Falcon
     "Falco peregrinus",        # Peregrine Falcon
     "Psittacus erithacus",     # African Grey Parrot
-    "Pycnonotus leucotis",     # White-eared Bulbul
-    "Chlamydotis undulata",    # Houbara Bustard
     "Carduelis carduelis",     # European Goldfinch
     "Uromastyx aegyptia",      # Egyptian Mastigure / Spiny-tailed Lizard
     "Testudo graeca",          # Spur-thighed Tortoise
@@ -68,8 +66,6 @@ SPECIES_META = {
     "Falco cherrug":          {"common_name": "Saker Falcon",             "iucn": "EN",  "cites_appendix": "II", "emoji": "🦅", "native_range": "Central Europe to Central Asia",                 "trafficking_note": "Highly prized for falconry in Gulf states."},
     "Falco peregrinus":       {"common_name": "Peregrine Falcon",         "iucn": "LC",  "cites_appendix": "I",  "emoji": "🦅", "native_range": "Cosmopolitan",                                    "trafficking_note": "Falconry trade; fastest animal on Earth."},
     "Psittacus erithacus":    {"common_name": "African Grey Parrot",      "iucn": "EN",  "cites_appendix": "I",  "emoji": "🦜", "native_range": "Equatorial Africa",                              "trafficking_note": "World's most trafficked parrot species."},
-    "Pycnonotus leucotis":    {"common_name": "White-eared Bulbul",       "iucn": "LC",  "cites_appendix": "II", "emoji": "🐦", "native_range": "Middle East to South Asia",                      "trafficking_note": "Songbird trade; popular cage bird in Gulf."},
-    "Chlamydotis undulata":   {"common_name": "Houbara Bustard",          "iucn": "VU",  "cites_appendix": "I",  "emoji": "🦃", "native_range": "Canary Islands to Central Asia",                 "trafficking_note": "Prized falconry quarry; massive harvest pressure."},
     "Carduelis carduelis":    {"common_name": "European Goldfinch",       "iucn": "LC",  "cites_appendix": "II", "emoji": "🐦", "native_range": "Europe, North Africa, Western and Central Asia",  "trafficking_note": "Most captured songbird in Mediterranean."},
     "Uromastyx aegyptia":     {"common_name": "Egyptian Spiny-tailed Lizard", "iucn": "VU", "cites_appendix": "II", "emoji": "🦎", "native_range": "North Africa and Middle East",              "trafficking_note": "Exotic pet trade; eaten locally."},
     "Testudo graeca":         {"common_name": "Spur-thighed Tortoise",    "iucn": "VU",  "cites_appendix": "II", "emoji": "🐢", "native_range": "North Africa, Southern Europe, Middle East",     "trafficking_note": "One of the most traded tortoises globally."},
@@ -227,7 +223,7 @@ def fetch_portal(species_name: str, max_seqs: int = 5) -> list[dict]:
 def fetch_species(species_name: str, max_seqs: int = 5, verbose: bool = True) -> list[dict]:
     """
     Fetch up to max_seqs COI sequences for species_name.
-    Tries Portal API first, falls back to v3 API.
+    Tries v3 API first (more stable), falls back to Portal API.
     Returns list of row-dicts ready to write to CSV.
     """
     if verbose:
@@ -256,13 +252,13 @@ def fetch_species(species_name: str, max_seqs: int = 5, verbose: bool = True) ->
         "gene":            "COI-5P",
     }
 
-    # Try Portal API first, then v3
-    seqs = fetch_portal(species_name, max_seqs=max_seqs)
+    # Try v3 API first (currently most stable), then Portal
+    seqs = fetch_v3(species_name, max_seqs=max_seqs)
     if not seqs:
         if verbose:
-            print(f"    Portal returned 0 — trying v3 API...")
+            print(f"    v3 returned 0 — trying Portal API...")
         time.sleep(0.5)
-        seqs = fetch_v3(species_name, max_seqs=max_seqs)
+        seqs = fetch_portal(species_name, max_seqs=max_seqs)
 
     if not seqs:
         if verbose:
